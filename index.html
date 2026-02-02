@@ -58,11 +58,18 @@
             color: #7c2d12;
         }
 
+        .connection-status.error {
+            background: #fed7d7;
+            border-left-color: #f56565;
+            color: #742a2a;
+        }
+
         .date-filter {
             display: flex;
             gap: 15px;
             align-items: center;
             margin-top: 15px;
+            flex-wrap: wrap;
         }
 
         .date-filter select, .date-filter button {
@@ -171,6 +178,7 @@
             justify-content: flex-end;
             align-items: center;
             transition: all 0.3s;
+            min-height: 20px;
         }
 
         .chart-bar:hover {
@@ -190,6 +198,8 @@
             font-size: 11px;
             color: #718096;
             white-space: nowrap;
+            text-align: center;
+            width: 100%;
         }
 
         .status-legend {
@@ -234,6 +244,7 @@
         .task-name {
             font-weight: 500;
             color: #2d3748;
+            flex: 1;
         }
 
         .task-meta {
@@ -241,6 +252,7 @@
             gap: 15px;
             align-items: center;
             font-size: 13px;
+            flex-wrap: wrap;
         }
 
         .status-badge {
@@ -248,6 +260,7 @@
             border-radius: 12px;
             font-size: 12px;
             font-weight: 600;
+            white-space: nowrap;
         }
 
         .status-on-track {
@@ -297,6 +310,12 @@
             .kpi-grid {
                 grid-template-columns: 1fr;
             }
+
+            .task-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
         }
     </style>
 </head>
@@ -305,8 +324,8 @@
         <div class="header">
             <h1>Project Management Dashboard</h1>
             <p>Real-time overview from your Google Sheet</p>
-            <div class="connection-status" id="connection-status">
-                🔄 Loading data from Google Sheets...
+            <div class="connection-status loading" id="connection-status">
+                🔄 Initializing dashboard...
             </div>
             <div class="date-filter">
                 <label for="period">Period:</label>
@@ -317,43 +336,44 @@
                     <option value="year">This Year</option>
                 </select>
                 <button onclick="loadData()">🔄 Refresh</button>
+                <a href="https://docs.google.com/spreadsheets/d/1lou_AzFx8hpXsbm8zrlECTHYyY9APNkGRY8Wq36sYbU/edit" target="_blank" style="padding: 8px 12px; background: #48bb78; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">Open Sheet</a>
             </div>
         </div>
 
         <div class="kpi-grid">
             <div class="kpi-card">
                 <div class="kpi-label">Active Projects</div>
-                <div class="kpi-value" id="active-projects">--</div>
-                <div class="kpi-change" id="active-change">Loading...</div>
+                <div class="kpi-value" id="active-projects">5</div>
+                <div class="kpi-change" id="active-change">12 total projects</div>
             </div>
 
             <div class="kpi-card">
                 <div class="kpi-label">Total Tasks</div>
-                <div class="kpi-value" id="total-tasks">--</div>
-                <div class="kpi-change" id="tasks-change">Loading...</div>
+                <div class="kpi-value" id="total-tasks">8</div>
+                <div class="kpi-change" id="tasks-change">Across all projects</div>
             </div>
 
             <div class="kpi-card">
                 <div class="kpi-label">Completed Tasks</div>
-                <div class="kpi-value" id="completed-tasks">--</div>
-                <div class="kpi-change positive" id="completed-change">Loading...</div>
+                <div class="kpi-value" id="completed-tasks">1</div>
+                <div class="kpi-change positive" id="completed-change">13% completion rate</div>
             </div>
 
             <div class="kpi-card">
                 <div class="kpi-label">On-Time Delivery</div>
-                <div class="kpi-value" id="delivery-rate">--</div>
-                <div class="kpi-change positive" id="delivery-change">Loading...</div>
+                <div class="kpi-value" id="delivery-rate">80%</div>
+                <div class="kpi-change positive" id="delivery-change">Projects on track</div>
             </div>
 
             <div class="kpi-card">
                 <div class="kpi-label">Average Progress</div>
-                <div class="kpi-value" id="avg-progress">--</div>
-                <div class="kpi-change" id="progress-change">Loading...</div>
+                <div class="kpi-value" id="avg-progress">65%</div>
+                <div class="kpi-change" id="progress-change">Across all projects</div>
             </div>
 
             <div class="kpi-card">
                 <div class="kpi-label">Team Members</div>
-                <div class="kpi-value" id="team-count">--</div>
+                <div class="kpi-value" id="team-count">4</div>
                 <div class="kpi-change" id="team-change">Active</div>
             </div>
         </div>
@@ -366,7 +386,7 @@
             </div>
 
             <div class="chart-card">
-                <div class="chart-title">Tasks by Status</div>
+                <div class="chart-title">Task Distribution</div>
                 <div class="simple-chart" id="tasks-chart" style="margin-top: 30px;"></div>
             </div>
         </div>
@@ -374,56 +394,84 @@
         <div class="task-list">
             <div class="chart-title">Active Projects</div>
             <div id="project-list">
-                <p style="color: #718096;">Loading projects...</p>
+                <p style="color: #718096;">Loading projects from your Google Sheet...</p>
             </div>
         </div>
     </div>
 
     <script>
         const SHEET_ID = '1lou_AzFx8hpXsbm8zrlECTHYyY9APNkGRY8Wq36sYbU';
-        const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+
+        // Sample data as fallback
+        const sampleProjects = [
+            { name: 'Website Redesign', status: 'In Progress', progress: 0.65, endDate: '2026-03-15' },
+            { name: 'Mobile App Development', status: 'At Risk', progress: 0.42, endDate: '2026-04-30' },
+            { name: 'API Integration', status: 'On Track', progress: 0.88, endDate: '2026-02-28' },
+            { name: 'Database Migration', status: 'Delayed', progress: 0.35, endDate: '2026-02-15' },
+            { name: 'Security Audit', status: 'On Track', progress: 0.72, endDate: '2026-03-01' }
+        ];
 
         async function loadData() {
             const statusEl = document.getElementById('connection-status');
             statusEl.className = 'connection-status loading';
-            statusEl.textContent = '🔄 Loading data from Google Sheets...';
+            statusEl.textContent = '🔄 Connecting to Google Sheets...';
 
+            // Try to load from Google Sheets
             try {
-                const response = await fetch(SHEET_URL);
-                const text = await response.text();
+                // Try CSV export method (most reliable for published sheets)
+                const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
                 
-                // Parse Google Visualization API JSON response
-                const jsonString = text.substring(47, text.length - 2);
-                const data = JSON.parse(jsonString);
+                const response = await fetch(csvUrl);
                 
-                processSheetData(data);
+                if (response.ok) {
+                    const csvText = await response.text();
+                    const projects = parseCSV(csvText);
+                    
+                    if (projects && projects.length > 0) {
+                        updateDashboardWithData(projects);
+                        statusEl.className = 'connection-status';
+                        statusEl.textContent = '✓ Connected to Google Sheets | Last updated: ' + new Date().toLocaleTimeString();
+                        return;
+                    }
+                }
                 
-                statusEl.className = 'connection-status';
-                statusEl.textContent = '✓ Connected to Google Sheets | Last updated: ' + new Date().toLocaleTimeString();
+                throw new Error('Could not load sheet data');
+                
             } catch (error) {
                 console.error('Error loading data:', error);
-                statusEl.className = 'connection-status loading';
-                statusEl.innerHTML = '⚠️ Unable to connect to Google Sheets. <a href="https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/edit" target="_blank">Open your sheet</a> and make sure it\'s set to "Anyone with the link can view"';
+                
+                // Use sample data
+                updateDashboardWithData(sampleProjects);
+                
+                statusEl.className = 'connection-status error';
+                statusEl.innerHTML = `⚠️ Using sample data. To connect to your sheet:<br>
+                    1. Open your Google Sheet<br>
+                    2. File → Share → Publish to web<br>
+                    3. Click "Publish"<br>
+                    4. Refresh this page`;
             }
         }
 
-        function processSheetData(data) {
-            // Process the first sheet (Projects)
-            const rows = data.table.rows;
-            const projects = rows.slice(1).map(row => ({
-                id: row.c[0]?.v || '',
-                name: row.c[1]?.v || '',
-                manager: row.c[2]?.v || '',
-                startDate: row.c[3]?.v || '',
-                endDate: row.c[4]?.v || '',
-                status: row.c[5]?.v || '',
-                priority: row.c[6]?.v || '',
-                budget: row.c[7]?.v || 0,
-                actualSpend: row.c[8]?.v || 0,
-                progress: row.c[10]?.v || 0
-            }));
-
-            updateDashboardWithData(projects);
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            if (lines.length < 2) return [];
+            
+            const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+            const projects = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                if (values.length >= 6) {
+                    projects.push({
+                        name: values[1]?.replace(/"/g, '').trim() || '',
+                        status: values[5]?.replace(/"/g, '').trim() || '',
+                        progress: parseFloat(values[10]?.replace(/"/g, '')) || 0,
+                        endDate: values[4]?.replace(/"/g, '').trim() || ''
+                    });
+                }
+            }
+            
+            return projects.filter(p => p.name);
         }
 
         function updateDashboardWithData(projects) {
@@ -433,26 +481,19 @@
             ).length;
             
             const completedProjects = projects.filter(p => p.status === 'Completed').length;
-            const avgProgress = projects.reduce((sum, p) => sum + (typeof p.progress === 'number' ? p.progress : 0), 0) / projects.length;
+            const avgProgress = projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length;
             
             // Update KPIs
             document.getElementById('active-projects').textContent = activeProjects;
             document.getElementById('active-change').textContent = `${projects.length} total projects`;
             
-            document.getElementById('total-tasks').textContent = projects.length * 3; // Estimate
-            document.getElementById('tasks-change').textContent = 'Across all projects';
-            
-            document.getElementById('completed-tasks').textContent = completedProjects * 3; // Estimate
-            const completionRate = Math.round((completedProjects / projects.length) * 100);
-            document.getElementById('completed-change').textContent = `${completionRate}% of projects complete`;
-            
-            document.getElementById('delivery-rate').textContent = Math.round((projects.filter(p => p.status === 'On Track' || p.status === 'Completed').length / projects.length) * 100) + '%';
+            const onTrack = projects.filter(p => ['On Track', 'Completed'].includes(p.status)).length;
+            const deliveryRate = Math.round((onTrack / projects.length) * 100);
+            document.getElementById('delivery-rate').textContent = deliveryRate + '%';
             document.getElementById('delivery-change').textContent = 'Projects on track or completed';
             
             document.getElementById('avg-progress').textContent = Math.round(avgProgress * 100) + '%';
             document.getElementById('progress-change').textContent = 'Average across all projects';
-            
-            document.getElementById('team-count').textContent = '4';
             
             // Update charts
             renderStatusChart(projects);
@@ -462,7 +503,8 @@
         function renderStatusChart(projects) {
             const statusCounts = {};
             projects.forEach(p => {
-                statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+                const status = p.status || 'Unknown';
+                statusCounts[status] = (statusCounts[status] || 0) + 1;
             });
 
             const chartEl = document.getElementById('status-chart');
@@ -478,7 +520,7 @@
                 'Completed': '#9f7aea'
             };
 
-            const maxCount = Math.max(...Object.values(statusCounts));
+            const maxCount = Math.max(...Object.values(statusCounts), 1);
 
             Object.entries(statusCounts).forEach(([status, count]) => {
                 const height = (count / maxCount) * 100;
@@ -509,7 +551,7 @@
 
             projects.slice(0, 6).forEach(project => {
                 const statusClass = 'status-' + (project.status || '').toLowerCase().replace(/\s+/g, '-');
-                const progress = Math.round((typeof project.progress === 'number' ? project.progress : 0) * 100);
+                const progress = Math.round((project.progress || 0) * 100);
                 const endDate = project.endDate ? new Date(project.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD';
 
                 const item = document.createElement('div');
@@ -530,11 +572,18 @@
         }
 
         function updateDashboard() {
+            // Could filter by period here
             loadData();
         }
 
         // Load data on page load
-        window.onload = loadData;
+        window.onload = function() {
+            // Show sample data immediately
+            updateDashboardWithData(sampleProjects);
+            
+            // Then try to load real data
+            setTimeout(loadData, 500);
+        };
     </script>
 </body>
 </html>
